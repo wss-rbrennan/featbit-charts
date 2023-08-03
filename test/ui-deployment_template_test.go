@@ -18,7 +18,7 @@ func TestPodTemplateRendersContainerImage(t *testing.T) {
 	// - image=nginx:1.15.8
 	options := &helm.Options{
 		SetValues: map[string]string{"ui.image.registry": "docker.io",
-			"ui.image.repository": "featbit/featbit-ui-asdfasdf",
+			"ui.image.repository": "featbit/featbit-ui",
 			"ui.image.pullPolicy": "IfNotPresent",
 			"ui.image.tag":        "2.4.1"},
 	}
