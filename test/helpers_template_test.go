@@ -55,7 +55,7 @@ func TestItShouldRemoveChartNameWhenSameAsReleaseName(t *testing.T) {
 
 }
 
-func TestItShouldRemoveInclueChartNameWhenNotSameAsReleaseName(t *testing.T) {
+func TestItShouldIncludeChartNameWhenNotSameAsReleaseName(t *testing.T) {
 	t.Parallel()
 	// logger.New(logger.Discard)
 	// Path to the helm chart we will test
