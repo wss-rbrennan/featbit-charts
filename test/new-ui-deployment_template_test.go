@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/intstr"
 
 	"github.com/gruntwork-io/terratest/modules/helm"
@@ -140,6 +141,42 @@ func TestHelmBasicExampleTemplateRenderedDeployment(t *testing.T) {
 	require.Equal(t, deploymentContainers[0].Command, expectedCommand)
 	require.Equal(t, deploymentContainers[0].Ports[0].Name, "http")
 	require.Equal(t, int(deploymentContainers[0].Ports[0].ContainerPort), int(80))
+
+	// livenessProbe
+	require.Equal(t, int(deploymentContainers[0].LivenessProbe.PeriodSeconds), int(5))
+	require.Equal(t, int(deploymentContainers[0].LivenessProbe.TimeoutSeconds), int(2))
+	require.Equal(t, deploymentContainers[0].LivenessProbe.HTTPGet.Path, "/health")
+	require.Equal(t, deploymentContainers[0].LivenessProbe.HTTPGet.Port, intstr.FromString("http"))
+
+	// readinessProbe
+	require.Equal(t, int(deploymentContainers[0].ReadinessProbe.PeriodSeconds), int(10))
+	require.Equal(t, int(deploymentContainers[0].ReadinessProbe.TimeoutSeconds), int(5))
+	require.Equal(t, deploymentContainers[0].ReadinessProbe.HTTPGet.Path, "/health")
+	require.Equal(t, deploymentContainers[0].ReadinessProbe.HTTPGet.Port, intstr.FromString("http"))
+
+	// resources
+	var cpuRequest *resource.Quantity = &resource.Quantity{}
+	cpuRequest.SetMilli(250)
+	cpuRequest.Format = "DecimalSI"
+	cpuRequest.String()
+
+	var contResourceReq = deploymentContainers[0].Resources.Requests.Cpu()
+	require.Equal(t, cpuRequest, contResourceReq)
+
+	//ENV
+	var env = deployment.Spec.Template.Spec.Containers[0].Env
+	require.Equal(t, env[0].Name, "API_URL")
+	require.Equal(t, "http://localhost:5000", deploymentContainers[0].Env[0].Value)
+	require.Equal(t, env[1].Name, "EVALUATION_URL")
+	require.Equal(t, "http://localhost:5100", deploymentContainers[0].Env[1].Value)
+	require.Equal(t, env[2].Name, "DEMO_URL")
+	require.Equal(t, "https://featbit-samples.vercel.app", env[2].Value)
+
+	//volumeMounts
+
+	require.Equal(t, deploymentContainers[0].VolumeMounts[0].Name, "scripts")
+	require.Equal(t, deploymentContainers[0].VolumeMounts[0].MountPath, "/scripts/setup.sh")
+	require.Equal(t, deploymentContainers[0].VolumeMounts[0].SubPath, "setup.sh")
 
 }
 
