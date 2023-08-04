@@ -8,10 +8,7 @@
 package test
 
 import (
-	"bytes"
-	"fmt"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -26,6 +23,8 @@ import (
 	"github.com/gruntwork-io/terratest/modules/k8s"
 	"github.com/gruntwork-io/terratest/modules/logger"
 	"github.com/gruntwork-io/terratest/modules/random"
+
+	util "lib"
 )
 
 // This file contains examples of how to use terratest to test helm chart template logic by rendering the templates
@@ -37,7 +36,7 @@ import (
 //   required for the template to render.
 
 // An example of how to verify the rendered template object of a Helm Chart given various inputs.
-func TestHelmBasicExampleTemplateRenderedDeployment(t *testing.T) {
+func TestEvalServerDeploymentTemplateRenderedDeployment(t *testing.T) {
 	t.Parallel()
 
 	// Path to the helm chart we will test
@@ -57,12 +56,12 @@ func TestHelmBasicExampleTemplateRenderedDeployment(t *testing.T) {
 	// - containerImageTag=1.15.8
 	options := &helm.Options{
 		SetValues: map[string]string{
-			"fullnameOverride":       fullnameOverride,
-			"ui.image.registry":      "docker.io",
-			"ui.image.repository":    "featbit/featbit-ui",
-			"ui.image.pullPolicy":    "IfNotPresent",
-			"ui.image.tag":           "2.4.1",
-			"ui.autoscaling.enabled": "false",
+			"fullnameOverride":        fullnameOverride,
+			"els.image.registry":      "docker.io",
+			"els.image.repository":    "featbit/featbit-evaluation-server",
+			"els.image.pullPolicy":    "IfNotPresent",
+			"els.image.tag":           "2.4.1",
+			"els.autoscaling.enabled": "false",
 		},
 		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
 	}
@@ -71,7 +70,7 @@ func TestHelmBasicExampleTemplateRenderedDeployment(t *testing.T) {
 	// we want to assert that the template renders without any errors.
 	// Additionally, although we know there is only one yaml file in the template, we deliberately path a templateFiles
 	// arg to demonstrate how to select individual templates to render.
-	output := helm.RenderTemplate(t, options, helmChartPath, releaseName, []string{"templates/ui-deployment.yaml"})
+	output := helm.RenderTemplate(t, options, helmChartPath, releaseName, []string{"templates/eval-server-deployment.yaml"})
 
 	// Now we use kubernetes/client-go library to render the template output into the Deployment struct. This will
 	// ensure the Deployment resource is rendered correctly.
@@ -82,12 +81,12 @@ func TestHelmBasicExampleTemplateRenderedDeployment(t *testing.T) {
 	assert.Equal(t, namespaceName, deployment.Namespace)
 
 	// Finally, we verify the deployment pod template spec is set to the expected container image value
-	expectedContainerImage := "docker.io/featbit/featbit-ui:2.4.1"
+	expectedContainerImage := "docker.io/featbit/featbit-evaluation-server:2.4.1"
 
 	assert.Equal(t, deployment.Namespace, namespaceName)
-	require.Equal(t, deployment.Name, "featbit-ui")
+	require.Equal(t, deployment.Name, "featbit-els")
 	require.Equal(t, deployment.Labels, map[string]string{
-		"app.kubernetes.io/component":  "ui",
+		"app.kubernetes.io/component":  "els",
 		"app.kubernetes.io/instance":   releaseName,
 		"app.kubernetes.io/managed-by": "Helm",
 		"app.kubernetes.io/name":       "featbit",
@@ -102,7 +101,7 @@ func TestHelmBasicExampleTemplateRenderedDeployment(t *testing.T) {
 	require.Equal(t, intstr.IntOrString(*deployment.Spec.Strategy.RollingUpdate.MaxSurge), intstr.FromString("25%"))
 	require.Equal(t, intstr.IntOrString(*deployment.Spec.Strategy.RollingUpdate.MaxUnavailable), intstr.FromString("25%"))
 	require.Equal(t, deployment.Spec.Selector.MatchLabels, map[string]string{
-		"app.kubernetes.io/component": "ui",
+		"app.kubernetes.io/component": "els",
 		"app.kubernetes.io/instance":  releaseName,
 		"app.kubernetes.io/name":      "featbit",
 	})
@@ -110,7 +109,7 @@ func TestHelmBasicExampleTemplateRenderedDeployment(t *testing.T) {
 	require.Equal(t, deployment.Spec.Template.ObjectMeta.Labels, map[string]string{
 		"app.kubernetes.io/name":      "featbit",
 		"app.kubernetes.io/instance":  releaseName,
-		"app.kubernetes.io/component": "ui",
+		"app.kubernetes.io/component": "els",
 	})
 
 	require.Equal(t, deployment.Spec.Template.Spec.ServiceAccountName, "featbit")
@@ -121,140 +120,69 @@ func TestHelmBasicExampleTemplateRenderedDeployment(t *testing.T) {
 	deploymentContainers := deployment.Spec.Template.Spec.Containers
 	//InitContainers Section
 	require.Equal(t, len(podSpec.InitContainers), 1)
-	require.Equal(t, podSpec.InitContainers[0].Name, "wait-for-other-components")
+	require.Equal(t, "wait-for-infrastructure-dependencies", podSpec.InitContainers[0].Name)
 	require.Equal(t, podSpec.InitContainers[0].Image, "docker.io/busybox:1.34")
 
-	initExpectedCommand := []string{"/bin/sh", "-c", CreateCommandString(namespaceName, fullnameOverride, 5000, 5100, 8200)}
+	initExpectedCommand := []string{"/bin/sh", "-c", util.CreateWaitForInfraCommandString(namespaceName, releaseName, fullnameOverride)}
 
-	require.Equal(t, podSpec.InitContainers[0].Command, initExpectedCommand)
+	require.Equal(t, initExpectedCommand, podSpec.InitContainers[0].Command)
 
-	// var podSecContext *corev1.PodSecurityContext = &corev1.PodSecurityContext{}
 	var containerSecContext *corev1.SecurityContext = &corev1.SecurityContext{}
 	var contPullPolicy corev1.PullPolicy = corev1.PullIfNotPresent
-	expectedCommand := []string{"/scripts/setup.sh"}
+
 	//Containers Section
 	require.Equal(t, len(deploymentContainers), 1)
-	require.Equal(t, deploymentContainers[0].Name, "featbit-ui")
+	require.Equal(t, deploymentContainers[0].Name, "featbit-els")
 	require.Equal(t, deploymentContainers[0].SecurityContext, containerSecContext)
 	require.Equal(t, deploymentContainers[0].Image, expectedContainerImage)
 	require.Equal(t, deploymentContainers[0].ImagePullPolicy, contPullPolicy)
-	require.Equal(t, deploymentContainers[0].Command, expectedCommand)
+
 	require.Equal(t, deploymentContainers[0].Ports[0].Name, "http")
-	require.Equal(t, int(deploymentContainers[0].Ports[0].ContainerPort), int(80))
+	require.Equal(t, int(deploymentContainers[0].Ports[0].ContainerPort), int(5100))
+	require.Equal(t, deploymentContainers[0].Ports[0].Protocol, corev1.ProtocolTCP)
 
 	// livenessProbe
 	require.Equal(t, int(deploymentContainers[0].LivenessProbe.PeriodSeconds), int(5))
 	require.Equal(t, int(deploymentContainers[0].LivenessProbe.TimeoutSeconds), int(2))
-	require.Equal(t, deploymentContainers[0].LivenessProbe.HTTPGet.Path, "/health")
+	require.Equal(t, deploymentContainers[0].LivenessProbe.HTTPGet.Path, "/health/liveness")
 	require.Equal(t, deploymentContainers[0].LivenessProbe.HTTPGet.Port, intstr.FromString("http"))
 
 	// readinessProbe
 	require.Equal(t, int(deploymentContainers[0].ReadinessProbe.PeriodSeconds), int(10))
 	require.Equal(t, int(deploymentContainers[0].ReadinessProbe.TimeoutSeconds), int(5))
-	require.Equal(t, deploymentContainers[0].ReadinessProbe.HTTPGet.Path, "/health")
+	require.Equal(t, deploymentContainers[0].ReadinessProbe.HTTPGet.Path, "/health/liveness")
 	require.Equal(t, deploymentContainers[0].ReadinessProbe.HTTPGet.Port, intstr.FromString("http"))
 
 	// resources
 	var cpuRequest *resource.Quantity = &resource.Quantity{}
 	cpuRequest.SetMilli(250)
 	cpuRequest.Format = "DecimalSI"
-	cpuRequest.String()
+	cpuRequest.String() //this needs to be called so the sting is generate in the Quantity instance
 
 	var contResourceReq = deploymentContainers[0].Resources.Requests.Cpu()
 	require.Equal(t, cpuRequest, contResourceReq)
 
 	//ENV
 	var env = deployment.Spec.Template.Spec.Containers[0].Env
-	require.Equal(t, env[0].Name, "API_URL")
-	require.Equal(t, "http://localhost:5000", deploymentContainers[0].Env[0].Value)
-	require.Equal(t, env[1].Name, "EVALUATION_URL")
-	require.Equal(t, "http://localhost:5100", deploymentContainers[0].Env[1].Value)
-	require.Equal(t, env[2].Name, "DEMO_URL")
-	require.Equal(t, "https://featbit-samples.vercel.app", env[2].Value)
-
-	//volumeMounts
-
-	require.Equal(t, deploymentContainers[0].VolumeMounts[0].Name, "scripts")
-	require.Equal(t, deploymentContainers[0].VolumeMounts[0].MountPath, "/scripts/setup.sh")
-	require.Equal(t, deploymentContainers[0].VolumeMounts[0].SubPath, "setup.sh")
+	require.Equal(t, "REDIS_HOST", env[0].Name)
+	require.Equal(t, "helm-basic-featbit-redis-master", deploymentContainers[0].Env[0].Value)
+	require.Equal(t, "REDIS_PORT", env[1].Name)
+	require.Equal(t, "6379", deploymentContainers[0].Env[1].Value)
+	require.Equal(t, "Redis__ConnectionString", env[2].Name)
+	require.Equal(t, "helm-basic-featbit-redis-master:6379", env[2].Value)
+	require.Equal(t, "REDIS_SSL", env[3].Name)
+	require.Equal(t, "false", env[3].Value)
+	require.Equal(t, "MongoDb__ConnectionString", env[4].Name)
+	require.Equal(t, "helm-basic-featbit-mongodb-conn-str", env[4].ValueFrom.SecretKeyRef.Name)
+	require.Equal(t, "mongodb-conn-str", env[4].ValueFrom.SecretKeyRef.Key)
+	require.Equal(t, "MongoDb__Database", env[5].Name)
+	require.Equal(t, "featbit", env[5].Value)
+	require.Equal(t, "MONGO_URI", env[6].Name)
+	require.Equal(t, "helm-basic-featbit-mongodb-conn-str", env[6].ValueFrom.SecretKeyRef.Name)
+	require.Equal(t, "mongodb-conn-str", env[6].ValueFrom.SecretKeyRef.Key)
+	require.Equal(t, "MONGO_INITDB_DATABASE", env[7].Name)
+	require.Equal(t, "featbit", env[7].Value)
+	require.Equal(t, "MONGO_HOST", env[8].Name)
+	require.Equal(t, "helm-basic-featbit-mongodb", env[8].Value)
 
 }
-
-// * TODO: toggle api, das, els
-func CreateCommandString(namespaceName string, releaseName string, apiPort int, elsPort int, dasPort int) string {
-	var strBytes bytes.Buffer
-
-	strBytes.WriteString("\nuntil (nc -vz ")
-	strBytes.WriteString(releaseName)
-	strBytes.WriteString("-api.")
-	strBytes.WriteString(namespaceName)
-	strBytes.WriteString(".svc.cluster.local ")
-	strBytes.WriteString(strconv.Itoa(apiPort))
-	strBytes.WriteString("); do\n    echo \"waiting for API\"; sleep 1;\ndone\n\n\nuntil (nc -vz ")
-	strBytes.WriteString(releaseName)
-	strBytes.WriteString("-els.")
-	strBytes.WriteString(namespaceName)
-	strBytes.WriteString(".svc.cluster.local ")
-	strBytes.WriteString(strconv.Itoa(elsPort))
-	strBytes.WriteString("); do\n    echo \"waiting for Evaluation Server\"; sleep 1;\ndone\n\n\nuntil (nc -vz ")
-	strBytes.WriteString(releaseName)
-	strBytes.WriteString("-das.")
-	strBytes.WriteString(namespaceName)
-	strBytes.WriteString(".svc.cluster.local ")
-	strBytes.WriteString(strconv.Itoa(dasPort))
-	strBytes.WriteString("); do\n  echo \"waiting for DA Server\"; sleep 1;\ndone\n")
-
-	return fmt.Sprint(strBytes.String())
-}
-
-// An example of how to verify required values for a helm chart.
-// func TestHelmBasicExampleTemplateRequiredTemplateArgs(t *testing.T) {
-// 	t.Parallel()
-
-// 	// Path to the helm chart we will test
-// 	helmChartPath, err := filepath.Abs("../charts/featbit")
-// 	releaseName := "helm-basic"
-// 	require.NoError(t, err)
-
-// 	// Since we aren't deploying any resources, there is no need to setup kubectl authentication, helm home, or
-// 	// namespaces
-
-// 	// Here, we use a table driven test to iterate through all the required values as subtests. You can learn more about
-// 	// go subtests here: https://blog.golang.org/subtests
-// 	// The struct captures the inputs that we will pass to helm template and a human friendly name so we can identify it
-// 	// in the test output. In this case, each test case will be a complete values input except for one of the required
-// 	// values missing, to test that neglecting a required value will cause the template rendering to fail.
-// 	testCases := []struct {
-// 		name   string
-// 		values map[string]string
-// 	}{
-// 		{
-// 			"MissingContainerImageRepo",
-// 			map[string]string{"containerImageTag": "1.15.8"},
-// 		},
-// 		{
-// 			"MissingContainerImageTag",
-// 			map[string]string{"containerImageRepo": "nginx"},
-// 		},
-// 	}
-
-// 	// Now we iterate over each test case and spawn a sub test
-// 	for _, testCase := range testCases {
-// 		// Here, we capture the range variable and force it into the scope of this block. If we don't do this, when the
-// 		// subtest switches contexts (because of t.Parallel), the testCase value will have been updated by the for loop
-// 		// and will be the next testCase!
-// 		testCase := testCase
-
-// 		// The actual sub test spawning. We name the sub test using the human friendly name. Note that we name the sub
-// 		// test T struct to subT to make it clear which T struct corresponds to which test. However, in most cases you
-// 		// will not reference the main test T so you can name it the same.
-// 		t.Run(testCase.name, func(subT *testing.T) {
-// 			subT.Parallel()
-
-// 			// Now we try rendering the template, but verify we get an error
-// 			options := &helm.Options{SetValues: testCase.values}
-// 			_, err := helm.RenderTemplateE(t, options, helmChartPath, releaseName, []string{})
-// 			require.Error(t, err)
-// 		})
-// 	}
-// }
