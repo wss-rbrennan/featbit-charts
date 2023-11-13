@@ -37,10 +37,22 @@
 {{- if .Values.isPro }}
 - name: IS_PRO
   value: "true"
-- name: Kafka__BootstrapServers
+- name: Kafka__Producer__bootstrap.servers
   value: {{ include "featbit.kafka.producer.brokers" . }}
-- name: Kafka__ConsumerServers
+- name: Kafka__Producer__linger.ms
+  value: "50"
+- name: Kafka__Consumer__bootstrap.servers
   value: {{ include "featbit.kafka.consumer.brokers" . }}
+- name: Kafka__Consumer__group.id
+  value: "featbit-api"
+- name: Kafka__Consumer__auto.offset.reset
+  value: "earliest"
+- name: Kafka__Consumer__enable.auto.commit
+  value: "true"
+- name: Kafka__Consumer__auto.commit.interval.ms
+  value: "5000"
+- name: Kafka__Consumer__enable.auto.offset.store
+  value: "false"
 {{- end }}
 {{- end -}}
 
