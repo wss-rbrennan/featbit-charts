@@ -192,6 +192,18 @@ Return the Redis host
 {{- end -}}
 
 {{/*
+Return the Redis host
+*/}}
+{{- define "featbit.redis.python.hosts" -}}
+{{- if .Values.redis.enabled -}}
+    {{- printf "%s-master" (include "featbit.redis.fullname" .) -}}
+{{- else -}}
+    {{- required "You need to provide a host when using external redis" (join "," .Values.externalRedis.python.hosts) | printf "%s" -}}
+{{- end -}}
+{{- end -}}
+
+
+{{/*
 Return the Redis port
 */}}
 {{- define "featbit.redis.port" -}}
@@ -248,6 +260,12 @@ Return the Redis secret password key
 {{- define "featbit.redis.sentinel.enabled" -}}
 {{- if and (not .Values.redis.enabled) .Values.externalRedis.sentinel.enabled -}}
     {{- true -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "featbit.redis.sentinel.masterSet" -}}
+{{- if and (not .Values.redis.enabled) .Values.externalRedis.sentinel.enabled -}}
+    {{- required "You need to provide masterSet when redis sentinel is specified in external Redis" .Values.externalRedis.sentinel.masterSet | printf "%s" -}}
 {{- end -}}
 {{- end -}}
 

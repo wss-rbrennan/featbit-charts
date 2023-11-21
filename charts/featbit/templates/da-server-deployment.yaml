@@ -70,6 +70,7 @@ spec:
             - name: CHECK_DB_LIVNESS
               value: "false"
             {{- include "redis-env" . | indent 12 }}
+            {{- include "redis-python-env" . | indent 12 }}
             {{- include "mongodb-env" . | indent 12 }}
             {{- include "das-pro-env" . | indent 12 }}
             {{- with .Values.das.env }}
